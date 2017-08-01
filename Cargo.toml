@@ -1,0 +1,11 @@
+[package]
+name = "splitter"
+version = "0.1.0"
+authors = ["Dzmitry Malyshau <kvark@mozilla.com>"]
+
+[dependencies]
+cgmath = {version = "0.15", features = ["mint"]}
+euclid = "0.15"
+mint = "0.4"
+plane-split = "0.6"
+three = {path = "../three-rs"}
