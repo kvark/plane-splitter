@@ -2,12 +2,22 @@ extern crate cgmath;
 extern crate euclid;
 extern crate mint;
 extern crate plane_split;
+extern crate ron;
+#[macro_use]
+extern crate serde_derive;
 extern crate three;
 
-use std::f32::consts;
+use std::io::Read;
+use std::fs::File;
 use cgmath::prelude::*;
 use plane_split::Splitter;
 
+#[derive(Deserialize)]
+struct Plane {
+    pos: [f32; 3],
+    rot: [f32; 3],
+    scale: f32,
+}
 
 fn main() {
     let mut win = three::Window::new("Plane splitter", "../three-rs/data/shaders").build();
@@ -15,16 +25,21 @@ fn main() {
     let mut controls = three::OrbitControls::new(&cam, [0.0, 2.0, 5.0], [0.0, 0.0, 0.0]).build();
     win.scene.add(&cam);
 
+    let mut contents = String::new();
+    File::open("poly.ron").expect("Unable to open scene description")
+         .read_to_string(&mut contents).unwrap();
+    let planes: Vec<Plane> = ron::de::from_str(&contents).unwrap();
+
     let material = three::Material::MeshBasic{ color: 0xffffff, map: None, wireframe: true };
     let geometry = three::Geometry::new_plane(2.0, 2.0);
-    let mut mesh1 = win.factory.mesh(geometry.clone(), material.clone());
-    mesh1.set_orientation(cgmath::Quaternion::from_angle_x(cgmath::Rad(-consts::FRAC_PI_2)));
+    let mut meshes: Vec<_> = planes.iter().map(|plane| {
+        let mut m = win.factory.mesh(geometry.clone(), material.clone());
+        let euler = cgmath::Quaternion::from(cgmath::Euler::new(
+            cgmath::Deg(plane.rot[0]), cgmath::Deg(plane.rot[1]), cgmath::Deg(plane.rot[2])));
+        m.set_transform(plane.pos, euler, plane.scale);
+        m
+    }).collect();
 
-    let mut mesh2 = win.factory.mesh(geometry, material);
-    mesh2.set_orientation(cgmath::Quaternion::from_angle_x(cgmath::Rad(consts::FRAC_PI_4)) *
-                          cgmath::Quaternion::from_angle_x(cgmath::Rad(-consts::FRAC_PI_2)));
-
-    let mut meshes = [mesh1, mesh2];
     for mesh in &meshes {
         win.scene.add(mesh);
     }

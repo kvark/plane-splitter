@@ -7,5 +7,8 @@ authors = ["Dzmitry Malyshau <kvark@mozilla.com>"]
 cgmath = {version = "0.15", features = ["mint"]}
 euclid = "0.15"
 mint = "0.4"
-plane-split = "0.6"
+plane-split = {path = "../plane-split"}
+ron = "0.0.1"
+serde = "1"
+serde_derive = "1"
 three = {path = "../three-rs"}
