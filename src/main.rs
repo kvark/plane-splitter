@@ -7,8 +7,9 @@ extern crate ron;
 extern crate serde_derive;
 extern crate three;
 
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::fs::File;
+use std::time::SystemTime;
 use cgmath::prelude::*;
 use plane_split::Splitter;
 
@@ -25,42 +26,53 @@ fn main() {
     let mut controls = three::OrbitControls::new(&cam, [0.0, 2.0, 5.0], [0.0, 0.0, 0.0]).build();
     win.scene.add(&cam);
 
-    let mut contents = String::new();
-    File::open("poly.ron").expect("Unable to open scene description")
-         .read_to_string(&mut contents).unwrap();
-    let planes: Vec<Plane> = ron::de::from_str(&contents).unwrap();
-
     let material = three::Material::MeshBasic{ color: 0xffffff, map: None, wireframe: true };
     let geometry = three::Geometry::new_plane(2.0, 2.0);
-    let mut meshes: Vec<_> = planes.iter().map(|plane| {
-        let mut m = win.factory.mesh(geometry.clone(), material.clone());
-        let euler = cgmath::Quaternion::from(cgmath::Euler::new(
-            cgmath::Deg(plane.rot[0]), cgmath::Deg(plane.rot[1]), cgmath::Deg(plane.rot[2])));
-        m.set_transform(plane.pos, euler, plane.scale);
-        m
-    }).collect();
-
-    for mesh in &meshes {
-        win.scene.add(mesh);
-    }
-
+    let mut last_time = SystemTime::now();
+    let mut file = File::open("poly.ron").expect("Unable to open scene description");
     let mut splitter = plane_split::BspSplitter::<f32, ()>::new();
-    let rect = euclid::Rect::new(
-        euclid::TypedPoint2D::new(-1.0, -1.0),
-        euclid::TypedSize2D::new(2.0, 2.0));
-    for mesh in &mut meshes {
-        let node = mesh.sync(&win.scene);
-        let decomposed = cgmath::Decomposed {
-            disp: cgmath::Point3::from(node.world_transform.position).to_vec(),
-            rot: cgmath::Quaternion::from(node.world_transform.orientation),
-            scale: node.world_transform.scale,
-        };
-        let transform = euclid::TypedTransform3D::from_row_arrays(cgmath::Matrix4::from(decomposed).into());
-        let poly = plane_split::Polygon::from_transformed_rect(rect, transform, 0);
-        splitter.add(poly);
-    }
 
     while win.update() && !three::KEY_ESCAPE.is_hit(&win.input) {
+        let write_time = file.metadata().unwrap().modified().unwrap();
+        if write_time != last_time {
+            last_time = write_time;
+            let mut contents = String::new();
+            file.seek(SeekFrom::Start(0)).unwrap();
+            file.read_to_string(&mut contents).unwrap();
+            let planes: Vec<Plane> = match ron::de::from_str(&contents) {
+                Ok(planes) => planes,
+                Err(e) => {
+                    println!("Unable to parse plane set: {:?}", e);
+                    continue;
+                }
+            };
+
+            let mut meshes: Vec<_> = planes.iter().map(|plane| {
+                let mut m = win.factory.mesh(geometry.clone(), material.clone());
+                let euler = cgmath::Quaternion::from(cgmath::Euler::new(
+                    cgmath::Deg(plane.rot[0]), cgmath::Deg(plane.rot[1]), cgmath::Deg(plane.rot[2])));
+                m.set_transform(plane.pos, euler, plane.scale);
+                m
+            }).collect();
+
+            let rect = euclid::Rect::new(
+                euclid::TypedPoint2D::new(-1.0, -1.0),
+                euclid::TypedSize2D::new(2.0, 2.0));
+            splitter.reset();
+            for mesh in &mut meshes {
+                win.scene.add(mesh);
+                let node = mesh.sync(&win.scene);
+                let decomposed = cgmath::Decomposed {
+                    disp: cgmath::Point3::from(node.world_transform.position).to_vec(),
+                    rot: cgmath::Quaternion::from(node.world_transform.orientation),
+                    scale: node.world_transform.scale,
+                };
+                let transform = euclid::TypedTransform3D::from_row_arrays(cgmath::Matrix4::from(decomposed).into());
+                let poly = plane_split::Polygon::from_transformed_rect(rect, transform, 0);
+                splitter.add(poly);
+            }
+        }
+
         let mut temp = Vec::new();
         let mut points = Vec::new();
         let view_dir = {
