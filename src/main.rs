@@ -1,5 +1,6 @@
 extern crate cgmath;
 extern crate euclid;
+extern crate env_logger;
 extern crate gfx_core;
 extern crate mint;
 extern crate plane_split;
@@ -24,16 +25,17 @@ struct Plane {
 }
 
 fn main() {
-    let root_path = "../three-rs/data/shaders";
-    let mut win = three::Window::new("Plane splitter", root_path).build();
+    env_logger::init().unwrap();
+
+    let mut win = three::Window::new("Plane splitter", "../three-rs/data/shaders").build();
     let mut cam = win.factory.perspective_camera(60.0, 1.0, 10.0);
-    let mut controls = three::OrbitControls::new(&cam, [0.0, 2.0, 5.0], [0.0, 0.0, 0.0]).build();
+    let mut controls = three::OrbitControls::new(&cam, [0.0, 1.0, 3.0], [0.0, 0.0, 0.0]).build();
     win.scene.add(&cam);
 
-    let rasterizer = state::Rasterizer::new_fill().with_offset(2.0, 2);
-    let pipeline = win.factory.basic_pipeline(
-        root_path, "../../../splitter/data/poly",
-        Primitive::TriangleList, rasterizer,
+    let pipeline = win.factory.basic_pipeline("data/poly",
+        Primitive::TriangleList,
+        state::Rasterizer::new_fill().with_offset(2.0, 2),
+        state::Depth { fun: state::Comparison::Always, write: false },
         ).unwrap();
     let material = three::Material::MeshBasic{ color: 0xffffff, map: None, wireframe: true };
     let geometry = three::Geometry::new_plane(2.0, 2.0);
@@ -63,7 +65,7 @@ fn main() {
             splitter.reset();
             meshes.clear();
 
-            for plane in &planes {
+            for (i, plane) in planes.iter().enumerate() {
                 let mut m = win.factory.mesh(geometry.clone(), material.clone());
                 let euler = cgmath::Quaternion::from(cgmath::Euler::new(
                     cgmath::Deg(plane.rot[0]), cgmath::Deg(plane.rot[1]), cgmath::Deg(plane.rot[2])));
@@ -77,13 +79,13 @@ fn main() {
                     scale: plane.scale,
                 };
                 let transform = euclid::TypedTransform3D::from_row_arrays(cgmath::Matrix4::from(decomposed).into());
-                let poly = plane_split::Polygon::from_transformed_rect(rect, transform, 0);
+                let poly = plane_split::Polygon::from_transformed_rect(rect, transform, i);
                 splitter.add(poly);
             }
         }
 
-        let mut temp = Vec::new();
         let mut points = Vec::new();
+        let mut temp = Vec::new();
         let view_dir = {
             let node = cam.sync(&win.scene);
             let dir = cgmath::Quaternion::from(node.world_transform.orientation) *
@@ -110,6 +112,11 @@ fn main() {
             let mesh = win.factory.mesh(geom, mat);
             win.scene.add(&mesh);
             temp.push(mesh);
+        }
+
+        temp.reverse(); //HACK: ensure drop order
+        if three::KEY_SPACE.is_hit(&win.input) {
+            println!("{:#?}", results);
         }
 
         controls.update(&win.input);
