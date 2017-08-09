@@ -1,7 +1,6 @@
 extern crate cgmath;
 extern crate euclid;
 extern crate env_logger;
-extern crate gfx_core;
 extern crate mint;
 extern crate plane_split;
 extern crate ron;
@@ -14,8 +13,27 @@ use std::fs::File;
 use std::time::SystemTime;
 
 use cgmath::prelude::*;
-use gfx_core::{Primitive, state};
+use three::{GfxPrimitive, gfx_state as state, gfx_preset as preset};
 use plane_split::Splitter;
+
+
+const STENCIL_PASS: state::StencilSide = state::StencilSide {
+    fun: state::Comparison::Always,
+    mask_read: 0,
+    mask_write: 0,
+    op_fail: state::StencilOp::Keep,
+    op_depth_fail: state::StencilOp::Keep,
+    op_pass: state::StencilOp::Keep,
+};
+const STENCIL_SET: state::StencilSide = state::StencilSide {
+    fun: state::Comparison::Equal,
+    mask_read: !0,
+    mask_write: !0,
+    op_fail: state::StencilOp::Keep,
+    op_depth_fail: state::StencilOp::Keep,
+    op_pass: state::StencilOp::IncrementClamp,
+};
+
 
 #[derive(Deserialize)]
 struct Plane {
@@ -32,17 +50,37 @@ fn main() {
     let mut controls = three::OrbitControls::new(&cam, [0.0, 1.0, 3.0], [0.0, 0.0, 0.0]).build();
     win.scene.add(&cam);
 
-    let pipeline = win.factory.basic_pipeline("data/poly",
-        Primitive::TriangleList,
-        state::Rasterizer::new_fill().with_offset(2.0, 2),
-        state::Depth { fun: state::Comparison::Always, write: false },
+    let pipeline_base = win.factory.basic_pipeline("data/poly",
+        GfxPrimitive::TriangleList,
+        state::Rasterizer::new_fill(),
+        state::MASK_ALL,
+        preset::blend::REPLACE,
+        preset::depth::LESS_EQUAL_WRITE,
+        state::Stencil { front: STENCIL_PASS, back: STENCIL_PASS, },
         ).unwrap();
-    let material = three::Material::MeshBasic{ color: 0xffffff, map: None, wireframe: true };
+    let pipeline_a = win.factory.basic_pipeline("data/poly",
+        GfxPrimitive::TriangleList,
+        state::Rasterizer::new_fill(),
+        state::RED | state::GREEN,
+        state::Blend { color: state::BlendChannel { equation: state::Equation::Sub, source: state::Factor::One, destination: state::Factor::One }, .. preset::blend::REPLACE },
+        preset::depth::PASS_TEST,
+        state::Stencil { front: STENCIL_SET, back: STENCIL_SET, },
+        ).unwrap();
+    let pipeline_b = win.factory.basic_pipeline("data/poly",
+        GfxPrimitive::TriangleList,
+        state::Rasterizer::new_fill(),
+        state::RED | state::GREEN,
+        state::Blend { color: state::BlendChannel { equation: state::Equation::RevSub, source: state::Factor::One, destination: state::Factor::One }, .. preset::blend::REPLACE },
+        preset::depth::PASS_TEST,
+        state::Stencil { front: STENCIL_SET, back: STENCIL_SET, },
+        ).unwrap();
+
     let geometry = three::Geometry::new_plane(2.0, 2.0);
     let mut last_time = SystemTime::now();
     let mut file = File::open("data/poly.ron").expect("Unable to open scene description");
     let mut splitter = plane_split::BspSplitter::<f32, ()>::new();
     let mut meshes = Vec::new();
+    let mut frame_id = 0usize;
 
     while win.update() && !three::KEY_ESCAPE.is_hit(&win.input) {
         let write_time = file.metadata().unwrap().modified().unwrap();
@@ -66,7 +104,14 @@ fn main() {
             meshes.clear();
 
             for (i, plane) in planes.iter().enumerate() {
-                let mut m = win.factory.mesh(geometry.clone(), material.clone());
+                let gray = (i + 1) * 0xFF / planes.len();
+                let mat = three::Material::CustomBasicPipeline {
+                    color: (gray as u32) * 0x010101,
+                    map: None,
+                    pipeline: pipeline_base.clone(),
+                };
+                let mut m = win.factory.mesh(geometry.clone(), mat);
+
                 let euler = cgmath::Quaternion::from(cgmath::Euler::new(
                     cgmath::Deg(plane.rot[0]), cgmath::Deg(plane.rot[1]), cgmath::Deg(plane.rot[2])));
                 m.set_transform(plane.pos, euler, plane.scale);
@@ -93,8 +138,9 @@ fn main() {
             euclid::TypedVector3D::new(dir.x, dir.y, dir.z)
         };
 
-        let results = splitter.sort(view_dir);
-        for (i, poly) in results.iter().enumerate() {
+        //reverse the order to draw front to back
+        let results = splitter.sort(view_dir * -1.0);
+        for poly in results {
             points.clear();
             for &k in &[0,1,2,2,3,0] {
                 let p = &poly.points[k];
@@ -103,11 +149,15 @@ fn main() {
             let start = points[0].clone();
             points.push(start);
             let geom = three::Geometry::from_vertices(points.clone());
-            let red = (i + 1) * 0xFF / results.len();
+            let gray = (poly.anchor + 1) * 0xFF / meshes.len();
             let mat = three::Material::CustomBasicPipeline {
-                color: (red<<16) as u32 + 0x00ff00,
+                color: (gray as u32) * 0x010101,
                 map: None,
-                pipeline: pipeline.clone(),
+                pipeline: if frame_id & 1 == 0 {
+                    pipeline_a.clone()
+                } else {
+                    pipeline_b.clone()
+                },
             };
             let mesh = win.factory.mesh(geom, mat);
             win.scene.add(&mesh);
@@ -118,6 +168,7 @@ fn main() {
         if three::KEY_SPACE.is_hit(&win.input) {
             println!("{:#?}", results);
         }
+        frame_id += 1;
 
         controls.update(&win.input);
         win.render(&cam);

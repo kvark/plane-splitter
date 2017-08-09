@@ -7,7 +7,6 @@ authors = ["Dzmitry Malyshau <kvark@mozilla.com>"]
 cgmath = {version = "0.15", features = ["mint"]}
 euclid = "0.15"
 env_logger = "0.4"
-gfx_core = "0.7"
 mint = "0.4"
 plane-split = {path = "../plane-split"}
 ron = "0.0.1"
