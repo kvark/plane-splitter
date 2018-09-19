@@ -2,14 +2,16 @@
 name = "splitter"
 version = "0.1.0"
 authors = ["Dzmitry Malyshau <kvark@mozilla.com>"]
+publish = false
 
 [dependencies]
-cgmath = {version = "0.15", features = ["mint"]}
-euclid = "0.15"
-env_logger = "0.4"
+cgmath = { version = "0.16", features = ["mint"] }
+euclid = "0.19"
+env_logger = "0.5"
+gfx = "0.17"
 mint = "0.4"
-plane-split = {path = "../plane-split"}
-ron = "0.0.1"
+plane-split = "0.13"
+ron = "0.4"
 serde = "1"
 serde_derive = "1"
-three = {path = "../three-rs"}
+three = "0.3"
