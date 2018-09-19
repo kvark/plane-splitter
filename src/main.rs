@@ -38,6 +38,7 @@ const STENCIL_SET: StencilSide = StencilSide {
     op_depth_fail: StencilOp::Keep,
     op_pass: StencilOp::IncrementClamp,
 };
+const EXTENT: f32 = 1.0;
 
 
 #[derive(Deserialize)]
@@ -103,7 +104,12 @@ fn main() {
         Stencil { front: STENCIL_SET, back: STENCIL_SET, },
         ).unwrap();
 
-    let geometry = three::Geometry::plane(2.0, 2.0);
+    let geometry = three::Geometry::plane(2.0 * EXTENT, 2.0 * EXTENT);
+    let base_rect = euclid::Rect::new(
+        euclid::TypedPoint2D::new(-EXTENT, -EXTENT),
+        euclid::TypedSize2D::new(2.0 * EXTENT, 2.0 * EXTENT),
+    );
+
     let mut last_time = SystemTime::now();
     let mut file = File::open("data/poly.ron").expect("Unable to open scene description");
     let mut splitter = plane_split::BspSplitter::<f32, ()>::new();
@@ -124,10 +130,6 @@ fn main() {
                     continue;
                 }
             };
-
-            let rect = euclid::Rect::new(
-                euclid::TypedPoint2D::new(-1.0, -1.0),
-                euclid::TypedSize2D::new(2.0, 2.0));
             splitter.reset();
             meshes.clear();
 
@@ -152,7 +154,7 @@ fn main() {
                     scale: plane.scale,
                 };
                 let transform = euclid::TypedTransform3D::from_row_arrays(cgmath::Matrix4::from(decomposed).into());
-                if let Some(poly) = plane_split::Polygon::from_transformed_rect(rect, transform, i) {
+                if let Some(poly) = plane_split::Polygon::from_transformed_rect(base_rect, transform, i) {
                     splitter.add(poly);
                 }
             }

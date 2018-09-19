@@ -1,4 +1,7 @@
 # plane-splitter
+[![Build Status](https://travis-ci.org/kvark/plane-splitter.svg)](https://travis-ci.org/kvark/plane-splitter)
+[![Gitter](https://badges.gitter.im/kvark/three-rs.svg)](https://gitter.im/three-rs/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+
 
 This is a testbed for [plane-split](https://crates.io/crates/plane-split) crate used by [WebRender](https://github.com/servo/webrender).
 
