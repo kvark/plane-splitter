@@ -14,6 +14,7 @@ use std::fs::File;
 use std::time::SystemTime;
 
 use cgmath::prelude::*;
+use cgmath::ApproxEq;
 use gfx::state::{
     Blend, BlendChannel, Comparison, ColorMask, Equation, Factor,
     Rasterizer, Stencil, StencilOp, StencilSide,
@@ -38,14 +39,26 @@ const STENCIL_SET: StencilSide = StencilSide {
     op_depth_fail: StencilOp::Keep,
     op_pass: StencilOp::IncrementClamp,
 };
-const EXTENT: f32 = 1.0;
 
 
 #[derive(Deserialize)]
+enum Transform<T> {
+    Component {
+        pos: [T; 3],
+        rot: [T; 3],
+        scale: T,
+    },
+    Matrix {
+        x: [T; 4],
+        y: [T; 4],
+        z: [T; 4],
+    },
+}
+
+#[derive(Deserialize)]
 struct Plane {
-    pos: [f32; 3],
-    rot: [f32; 3],
-    scale: f32,
+    transform: Transform<f32>,
+    extent: [f32; 2],
 }
 
 fn main() {
@@ -104,12 +117,6 @@ fn main() {
         Stencil { front: STENCIL_SET, back: STENCIL_SET, },
         ).unwrap();
 
-    let geometry = three::Geometry::plane(2.0 * EXTENT, 2.0 * EXTENT);
-    let base_rect = euclid::Rect::new(
-        euclid::TypedPoint2D::new(-EXTENT, -EXTENT),
-        euclid::TypedSize2D::new(2.0 * EXTENT, 2.0 * EXTENT),
-    );
-
     let mut last_time = SystemTime::now();
     let mut file = File::open("data/poly.ron").expect("Unable to open scene description");
     let mut splitter = plane_split::BspSplitter::<f32, ()>::new();
@@ -134,26 +141,73 @@ fn main() {
             meshes.clear();
 
             for (i, plane) in planes.iter().enumerate() {
+                let geometry = three::Geometry::plane(2.0 * plane.extent[0], 2.0 * plane.extent[1]);
                 let gray = (i + 1) * 0xFF / planes.len();
                 let mat = three::material::basic::Custom {
                     color: (gray as u32) * 0x010101,
                     map: None,
                     pipeline: pipeline_base.clone(),
                 };
-                let mut m = win.factory.mesh(geometry.clone(), mat);
+                let mut mesh = win.factory.mesh(geometry.clone(), mat);
 
-                let euler = cgmath::Quaternion::from(cgmath::Euler::new(
-                    cgmath::Deg(plane.rot[0]), cgmath::Deg(plane.rot[1]), cgmath::Deg(plane.rot[2])));
-                m.set_transform(plane.pos, euler, plane.scale);
-                win.scene.add(&m);
-                meshes.push(m);
+                let transform = match plane.transform {
+                    Transform::Component { pos, rot, scale } => {
+                        let quat = cgmath::Quaternion::from(cgmath::Euler::new(
+                            cgmath::Deg(rot[0]), cgmath::Deg(rot[1]), cgmath::Deg(rot[2]))
+                        );
+                        mesh.set_transform(pos, quat, scale);
 
-                let decomposed = cgmath::Decomposed {
-                    disp: cgmath::Point3::from(plane.pos).to_vec(),
-                    rot: cgmath::Quaternion::from(euler),
-                    scale: plane.scale,
+                        let decomposed = cgmath::Decomposed {
+                            disp: cgmath::Vector3::from(pos),
+                            rot: quat,
+                            scale,
+                        };
+                        cgmath::Matrix4::from(decomposed)
+                    }
+                    Transform::Matrix { x, y, z } => {
+                        let vx = cgmath::vec3(x[0], x[1], x[2]);
+                        let vy = cgmath::vec3(y[0], y[1], y[2]);
+                        let vz = cgmath::vec3(z[0], z[1], z[2]);
+
+                        let scale3 = cgmath::vec3(
+                            vx.magnitude(),
+                            vy.magnitude(),
+                            vz.magnitude(),
+                        );
+                        let eps = f32::default_epsilon();
+                        let dist = f32::default_max_relative();
+                        if !scale3.y.relative_eq(&scale3.x, eps, dist) || !scale3.z.relative_eq(&scale3.x, eps, dist) {
+                            //warn!("Bad scale {:?} on plane [{}]", scale3, i);
+                        }
+
+                        let rot = cgmath::Quaternion::from(cgmath::Matrix3::from_cols(
+                            vx / scale3.x,
+                            vy / scale3.y,
+                            vz / scale3.z,
+                        ));
+                        mesh.set_transform(
+                            cgmath::Point3::new(x[3], y[3], z[3]),
+                            rot,
+                            (scale3.x + scale3.y + scale3.z) / 3.0,
+                        );
+
+                        cgmath::Matrix4::from_cols(
+                            x.into(),
+                            y.into(),
+                            z.into(),
+                            cgmath::vec4(0.0, 0.0, 0.0, 1.0),
+                        )
+                    }
                 };
-                let transform = euclid::TypedTransform3D::from_row_arrays(cgmath::Matrix4::from(decomposed).into());
+
+                win.scene.add(&mesh);
+                meshes.push(mesh);
+
+                let base_rect = euclid::Rect::new(
+                    euclid::TypedPoint2D::new(-plane.extent[0], -plane.extent[1]),
+                    euclid::TypedSize2D::new(2.0 * plane.extent[0], 2.0 * plane.extent[1]),
+                );
+                let transform = euclid::TypedTransform3D::from_row_arrays(transform.into());
                 if let Some(poly) = plane_split::Polygon::from_transformed_rect(base_rect, transform, i) {
                     splitter.add(poly);
                 }
